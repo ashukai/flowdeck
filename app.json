@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "FlowDeck",
+    "slug": "flowdeck-app",
+    "version": "1.0.0",
+    "orientation": "default",
+    "userInterfaceStyle": "light",
+    "scheme": "flowdeck",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.flowdeck.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.flowdeck.app"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "FlowDeck needs photo access so you can add screenshots to your steps."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
