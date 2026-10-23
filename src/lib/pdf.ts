@@ -3,9 +3,10 @@ import * as Sharing from 'expo-sharing'
 import { Platform } from 'react-native'
 import { Annotation, Edge, Flow, Step } from '@/types'
 import { STEP_COLORS } from '@/theme'
+import { SEAT } from '@/lib/script'
 import {
   Pos, NOTE_W, NOTE_H, CARD_PAD, HEAD_GAP, BULLET_ROW, A4_W, A4_H, A4_PAD,
-  visibleBullets, cardWidth, cardHeight, impliedEdges, stepNumbers,
+  visibleBullets, cardWidth, cardHeight, impliedEdges, stepNumbers, SCRIPT_PREVIEW,
   edgeGeom, edgePath, arrowHead, labelPoint, placeLabels, tidyLayout,
 } from '@/lib/flowGeometry'
 
@@ -82,7 +83,13 @@ function cardHtml(st: Step, num: number | undefined, pos: Pos, w: number, h: num
     </div>`
   }
 
-  const bullets = vis.map((v) => {
+  const lines = st.script?.length
+    ? st.script.slice(0, SCRIPT_PREVIEW).map((l) => {
+        const seat = SEAT[l.who]
+        return `<div class="brow"><span class="stag" style="background:${seat.tint};color:${seat.ink}">${seat.short}</span><span class="btext${l.say ? ' said' : ''}">${esc(l.say ? `“${l.text}”` : l.text)}</span></div>`
+      }).join('') + (st.script.length > SCRIPT_PREVIEW ? `<div class="brow"><span class="btext more">+ ${st.script.length - SCRIPT_PREVIEW} more lines</span></div>` : '')
+    : ''
+  const bullets = lines || vis.map((v) => {
     const on = !!st.done?.[v.i]
     return `<div class="brow"><span class="chk ${on ? 'on' : ''}">${on ? '✓' : ''}</span><span class="btext ${on ? 'bdone' : ''}">${esc(v.text)}</span></div>`
   }).join('')
@@ -90,6 +97,7 @@ function cardHtml(st: Step, num: number | undefined, pos: Pos, w: number, h: num
     ? `<div class="imgwrap"><img src="${st.image.uri}"/>${overlaySvg(st.annotations)}</div>`
     : ''
   const meta = [
+    st.script?.length ? `PF ${st.script.filter((l) => l.who === 'PF').length} · PM ${st.script.filter((l) => l.who === 'PM').length}` : '',
     vis.length ? `${doneCount}/${vis.length} done` : '',
     st.annotations.length ? `${st.annotations.length} marks` : '',
     allDone ? 'complete ✓' : '',
@@ -100,7 +108,7 @@ function cardHtml(st: Step, num: number | undefined, pos: Pos, w: number, h: num
       <span class="badge" style="background:${col}">${allDone ? '✓' : num ?? ''}</span>
       <span class="ctitle">${esc(st.title)}</span>
     </div>
-    ${bullets || (vis.length ? '' : '<div class="cempty">—</div>')}
+    ${bullets || '<div class="cempty">—</div>'}
     ${img}
     <div class="cmeta ${allDone ? 'mdone' : ''}">${meta}</div>
   </div>`
@@ -207,6 +215,11 @@ export function flowHtml(flow: Flow): string {
     .small .chk { width: 18px; height: 18px; }
     .btext { font-size: 13px; color: #6E7787; }
     .btext.bdone { color: #1FA97A; text-decoration: line-through; }
+    .stag { flex: 0 0 auto; min-width: 30px; height: 16px; border-radius: 5px; font-size: 9px; font-weight: 800;
+            display: flex; align-items: center; justify-content: center; padding: 0 4px; }
+    .btext.said { color: #1B2130; font-weight: 600; }
+    .btext.more { color: #A2AABB; }
+    .brow .btext { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .cempty { color: #A2AABB; font-size: 13px; }
     .cmeta { margin-top: 6px; font-size: 11px; color: #A2AABB; font-weight: 700; }
     .cmeta.mdone { color: #1FA97A; }

@@ -9,13 +9,14 @@ import { Button, Field, IconButton } from '@/components/ui'
 import { exportFlowPdf } from '@/lib/pdf'
 import { canPrint } from '@/lib/hosting'
 import { useConfirm } from '@/components/Confirm'
+import { SEAT } from '@/lib/script'
 import { uid } from '@/lib/id'
 import { Edge, BoardNote, Step } from '@/types'
 import { C, R, S, F, STEP_COLORS, STEP_FILLS, NOTE_COLORS } from '@/theme'
 import {
   Pos, CARD_W, SMALL_W, SMALL_H, DECISION_W, DECISION_H, END_W, END_H, NOTE_W, NOTE_H, MARGIN, A4_W, A4_H, A4_PAD,
   CARD_PAD, HEAD_H, HEAD_GAP, BULLET_ROW, IMG_H, META_H,
-  visibleBullets, cardWidth, cardHeight, impliedEdges, stepNumbers,
+  visibleBullets, cardWidth, cardHeight, impliedEdges, stepNumbers, SCRIPT_PREVIEW,
   edgeGeom, bezierPoint, edgePath, arrowHead, labelPoint, placeLabels, tidyLayout,
 } from '@/lib/flowGeometry'
 
@@ -481,6 +482,7 @@ export default function Board() {
             const now = Date.now()
             if (lastTap.current.id === g.targetId && now - lastTap.current.t < 350 && fid) {
               if (st.kind) setTextModal({ kind: 'title', id: st.id, value: st.title })
+              else if (st.script?.length) routerRef.current.push(`/flow/${fid}/script/${g.targetId}`)
               else routerRef.current.push(`/flow/${fid}/step/${g.targetId}`)
             } else {
               setSelection({ type: 'card', id: g.targetId })
@@ -999,7 +1001,25 @@ export default function Board() {
                     </View>
                     <Text style={styles.cardTitle} numberOfLines={3}>{st.title}</Text>
                   </View>
-                  {vis.length ? (
+                  {st.script?.length ? (
+                    <View>
+                      {st.script.slice(0, SCRIPT_PREVIEW).map((l, row) => (
+                        <View key={l.id} style={[styles.bulletRow, { height: BULLET_ROW }]}>
+                          <View style={[styles.seatTag, { backgroundColor: SEAT[l.who].tint }]}>
+                            <Text style={[styles.seatTagText, { color: SEAT[l.who].ink }]}>{SEAT[l.who].short}</Text>
+                          </View>
+                          <Text style={[styles.cardBullet, l.say && { color: C.text, fontWeight: '600' }]} numberOfLines={1}>
+                            {l.say ? `“${l.text}”` : l.text}
+                          </Text>
+                        </View>
+                      ))}
+                      {st.script.length > SCRIPT_PREVIEW && (
+                        <Text style={[styles.cardBullet, { height: BULLET_ROW, lineHeight: BULLET_ROW, color: C.faint }]}>
+                          + {st.script.length - SCRIPT_PREVIEW} more lines
+                        </Text>
+                      )}
+                    </View>
+                  ) : vis.length ? (
                     <View>
                       {vis.map((v, row) => {
                         const isDone = !!st.done?.[v.i]
@@ -1018,6 +1038,7 @@ export default function Board() {
                   )}
                   {st.image && <Image source={{ uri: st.image.uri }} style={styles.cardImg} contentFit="cover" />}
                   <Text style={[styles.cardMeta, allDone && { color: C.success }]}>
+                    {st.script?.length ? `PF ${st.script.filter((l) => l.who === 'PF').length} · PM ${st.script.filter((l) => l.who === 'PM').length}` : ''}
                     {vis.length ? `${doneCount}/${vis.length} done` : ''}
                     {st.annotations.length ? `  ·  ${st.annotations.length} marks` : ''}
                     {allDone ? '  ·  complete ✓' : ''}
@@ -1098,6 +1119,15 @@ export default function Board() {
                       <Button label="Condition" icon="diamond" variant="dark" size="sm" onPress={() => quickAdd(selectedStep.id, 'decision')} />
                       {selectedStep.kind !== 'end' && !edges.some((e) => e.from === selectedStep.id) && (
                         <Button label="End" icon="flag" variant="dark" size="sm" onPress={() => quickAdd(selectedStep.id, 'end')} />
+                      )}
+                      {!selectedStep.kind && selectedStep.size !== 'small' && (
+                        <Button
+                          label={selectedStep.script?.length ? `Script · ${selectedStep.script.length}` : 'PF / PM'}
+                          icon="script"
+                          variant="dark"
+                          size="sm"
+                          onPress={() => router.push(`/flow/${flow.id}/script/${selectedStep.id}`)}
+                        />
                       )}
                       <Button
                         label={selectedStep.kind === 'end' ? 'Rename' : 'Edit'}
@@ -1250,6 +1280,8 @@ const styles = StyleSheet.create({
     width: 15, height: 15, borderRadius: 4, borderWidth: 1.5, borderColor: C.faint,
     alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff',
   },
+  seatTag: { minWidth: 30, height: 16, borderRadius: 5, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  seatTagText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.3 },
   checkboxTick: { color: '#fff', fontSize: 9, fontWeight: '900', lineHeight: 11 },
   cardBullet: { color: C.muted, fontSize: F.small, flex: 1 },
   cardBulletDone: { color: C.success, textDecorationLine: 'line-through', textDecorationColor: C.success + '88' },

@@ -34,6 +34,7 @@ export default function RootLayout() {
           <Stack.Screen name="flow/[id]/index" options={{ title: '' }} />
           <Stack.Screen name="flow/[id]/edit" options={{ title: 'Edit flow' }} />
           <Stack.Screen name="flow/[id]/step/[stepId]" options={{ title: 'Step', presentation: 'card' }} />
+          <Stack.Screen name="flow/[id]/script/[stepId]" options={{ headerShown: false }} />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

@@ -31,7 +31,16 @@ const GAP_X = 70
 const GAP_Y = 84
 
 export function visibleBullets(st: Step) {
+  if (st.script?.length) return []
   return st.bullets.map((b, i) => ({ text: b, i })).filter((x) => x.text.trim().length > 0)
+}
+
+// A box with a PF / PM script previews its first lines on the board.
+export const SCRIPT_PREVIEW = 4
+export function scriptRows(st: Step): number {
+  const n = st.script?.length ?? 0
+  if (!n) return 0
+  return Math.min(n, SCRIPT_PREVIEW) + (n > SCRIPT_PREVIEW ? 1 : 0)
 }
 
 // Diamonds grow with their question so the text always fits inside.
@@ -52,7 +61,7 @@ export function contentHeight(st: Step, headH = HEAD_H): number {
   if (st.kind === 'decision') return decisionSize(st.title).h
   if (st.kind === 'end') return END_H
   if (st.size === 'small') return SMALL_H
-  const n = visibleBullets(st).length
+  const n = scriptRows(st) || visibleBullets(st).length
   const body = n > 0 ? n * BULLET_ROW : 22
   const img = st.image ? IMG_H + 8 : 0
   return CARD_PAD * 2 + headH + HEAD_GAP + body + img + META_H

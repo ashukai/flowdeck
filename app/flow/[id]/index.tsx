@@ -7,8 +7,10 @@ import { useLayout } from '@/lib/responsive'
 import { AnnotatedImage } from '@/components/AnnotatedImage'
 import { Button, IconButton } from '@/components/ui'
 import { Icon } from '@/components/Icon'
+import { ScriptBubble } from '@/components/ScriptLog'
 import { impliedEdges, stepNumbers, visibleBullets } from '@/lib/flowGeometry'
-import { Edge, Step } from '@/types'
+import { SEAT, speak } from '@/lib/script'
+import { Edge, ScriptLine, Step } from '@/types'
 import { C, S, F } from '@/theme'
 
 // Present walks the flow the way it's drawn: Next follows the arrow, a
@@ -25,20 +27,22 @@ function branchRank(label?: string) {
 }
 
 export default function Present() {
-  const { id } = useLocalSearchParams<{ id: string }>()
+  const { id, at } = useLocalSearchParams<{ id: string; at?: string }>()
   const router = useRouter()
   const { wide } = useLayout()
   const flow = useFlows((s) => s.flows.find((f) => f.id === id))
   const updateStep = useFlows((s) => s.updateStep)
+  const markLine = useFlows((s) => s.markLine)
 
   const steps = flow?.steps ?? []
   const edges = useMemo(() => flow?.edges ?? impliedEdges(steps), [flow?.edges, steps])
   const numbers = useMemo(() => stepNumbers(steps), [steps])
   const byId = useMemo(() => new Map(steps.map((s) => [s.id, s])), [steps])
   const start = useMemo(() => {
+    if (at && steps.some((s) => s.id === at)) return at
     const hasIncoming = new Set(edges.filter((e) => e.from !== e.to).map((e) => e.to))
     return steps.find((s) => !hasIncoming.has(s.id))?.id ?? steps[0]?.id
-  }, [steps, edges])
+  }, [steps, edges, at])
 
   // the route so far, and the arrow label chosen at each hop
   const [path, setPath] = useState<string[]>([])
@@ -62,6 +66,45 @@ export default function Present() {
   const isChoice = cur?.kind === 'decision' || outs.length > 1
   const done = finished || cur?.kind === 'end'
 
+  // ── chair-flying a PF / PM script ──────────────────────────────────────
+  // You take a seat; the other pilot's lines play out (aloud, if Voice is
+  // on) and yours stay blank until you've said or done them.
+  const [seat, setSeat] = useState<'watch' | 'PF' | 'PM'>('PM')
+  const [voice, setVoice] = useState(false)
+  const [lineIdx, setLineIdx] = useState(0)
+  const [shown, setShown] = useState(true)
+  const [results, setResults] = useState<Record<string, 'got' | 'miss'>>({})
+  const script: ScriptLine[] | null = cur && !cur.kind && cur.script?.length ? cur.script : null
+  const inScript = !!script && lineIdx < script.length
+  const curLine = script && inScript ? script[lineIdx] : undefined
+  const isMine = (l?: ScriptLine) => !!l && seat !== 'watch' && (l.who === seat || l.who === 'BOTH')
+  const hasScripts = steps.some((s) => s.script?.length)
+
+  useEffect(() => { setLineIdx(0); setResults({}) }, [curId])
+  useEffect(() => {
+    const mine = isMine(curLine)
+    setShown(!mine)
+    if (!mine && voice && curLine?.say) speak(curLine.text)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [curId, lineIdx, seat])
+
+  const nextLine = (r?: 'got' | 'miss') => {
+    if (!curLine) return
+    if (r && flow) {
+      markLine(flow.id, curLine.id, r === 'got')
+      setResults((x) => ({ ...x, [curLine.id]: r }))
+    }
+    setLineIdx((i) => i + 1)
+  }
+  const stageRef = useRef<ScrollView>(null)
+  // keep the newest line (and the summary at the end) in view
+  useEffect(() => {
+    if (!script) return
+    const t = setTimeout(() => stageRef.current?.scrollToEnd({ animated: true }), 60)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lineIdx, shown, curId])
+
   const crumbRef = useRef<ScrollView>(null)
 
   // gentle fade + rise each time the box changes
@@ -78,6 +121,7 @@ export default function Present() {
   }
   const back = () => {
     if (finished) { setFinished(false); return }
+    if (script && lineIdx > 0) { setLineIdx((i) => i - 1); return }
     if (path.length <= 1) return
     setPath((p) => p.slice(0, -1))
     setTaken((t) => t.slice(0, -1))
@@ -108,6 +152,12 @@ export default function Present() {
   const keys = useRef<(k: string) => void>(() => {})
   keys.current = (k: string) => {
     if (!cur) return
+    if (inScript && (k === 'ArrowRight' || k === 'Enter' || k === ' ')) {
+      if (isMine(curLine) && !shown) setShown(true)
+      else nextLine(isMine(curLine) ? 'got' : undefined)
+      return
+    }
+    if (inScript && k === 'm' && isMine(curLine) && shown) { nextLine('miss'); return }
     if ((k === 'ArrowRight' || k === 'Enter') && !isChoice && !done) {
       if (outs[0]) go(outs[0])
       else setFinished(true)
@@ -237,6 +287,46 @@ export default function Present() {
     </View>
   )
 
+  const scriptBody = cur && script && (() => {
+    const upTo = Math.min(lineIdx + 1, script.length)
+    const mineLines = script.filter((l) => isMine(l))
+    const missed = mineLines.filter((l) => results[l.id] === 'miss')
+    const got = mineLines.filter((l) => results[l.id] === 'got').length
+    return (
+      <>
+        <View style={styles.kickerRow}>
+          <Text style={styles.kicker}>{kicker(cur)} · PF / PM</Text>
+          <Text style={styles.count}>{Math.min(lineIdx, script.length)} of {script.length}</Text>
+        </View>
+        <Text style={styles.title}>{cur.title}</Text>
+        <View style={styles.log}>
+          {script.slice(0, upTo).map((l, i) => (
+            <ScriptBubble
+              key={l.id}
+              line={l}
+              n={i + 1}
+              mine={isMine(l)}
+              hidden={i === lineIdx && isMine(l) && !shown}
+              result={results[l.id]}
+            />
+          ))}
+        </View>
+        {!inScript && seat !== 'watch' && mineLines.length > 0 && (
+          <View style={styles.summary}>
+            <Text style={styles.summaryHead}>
+              {missed.length ? `${got} of ${mineLines.length} right · ${missed.length} to practise` : `All ${mineLines.length} of your lines right`}
+            </Text>
+            {missed.map((l) => (
+              <Text key={l.id} style={styles.summaryLine} numberOfLines={2}>
+                {l.forget ? '★ ' : ''}{l.say ? `“${l.text}”` : l.text}
+              </Text>
+            ))}
+          </View>
+        )}
+      </>
+    )
+  })()
+
   const stepBody = cur && !cur.kind && (() => {
     if (cur.size === 'small') {
       return (
@@ -301,7 +391,46 @@ export default function Present() {
     )
   })()
 
-  const footer = !done && cur && (
+  const seatPicker = (
+    <View style={styles.seatRow}>
+      <View style={[styles.seatSeg, !wide && { flex: 1 }]}>
+        {(['watch', 'PF', 'PM'] as const).map((sv) => (
+          <Pressable key={sv} onPress={() => { setSeat(sv); setLineIdx(0); setResults({}) }} style={[styles.seatItem, !wide && { flex: 1, alignItems: 'center' }, seat === sv && styles.seatOn]}>
+            <Text style={[styles.seatText, seat === sv && { color: C.text }]}>{sv === 'watch' ? 'Watch' : `I'm ${sv}`}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <IconButton icon={voice ? 'volume' : 'volume-off'} label="Read the other pilot aloud" variant={voice ? 'ink' : 'soft'} size={34} onPress={() => setVoice((v) => !v)} />
+    </View>
+  )
+
+  const scriptFooter = inScript && curLine && (
+    <View style={styles.footer}>
+      <Text style={styles.turn}>
+        {isMine(curLine)
+          ? (shown ? 'Did you have it?' : curLine.say ? `Your call — say it, then show` : `Your action — do it, then show`)
+          : `${SEAT[curLine.who].name}${curLine.say ? ' says' : ''}`}
+      </Text>
+      <View style={styles.footerRow}>
+        <Button label="Back" icon="arrow-left" variant="soft" size="lg" disabled={path.length <= 1 && lineIdx === 0} onPress={back} />
+        {isMine(curLine) && shown ? (
+          <>
+            <Button label="Missed" icon="x" variant="ink" size="lg" onPress={() => nextLine('miss')} style={{ flex: 1 }} />
+            <Button label="Got it" icon="check" size="lg" onPress={() => nextLine('got')} style={{ flex: 1 }} />
+          </>
+        ) : isMine(curLine) ? (
+          <Button label="Show my line" icon="eye" size="lg" onPress={() => setShown(true)} style={{ flex: 1 }} />
+        ) : (
+          <Button label="Next" iconRight="arrow-right" size="lg" onPress={() => nextLine()} style={{ flex: 1 }} />
+        )}
+      </View>
+      {Platform.OS === 'web' && wide && (
+        <Text style={styles.hint}>{isMine(curLine) && shown ? 'Enter = got it · M = missed · ← back' : '→ or Space to continue · ← back'}</Text>
+      )}
+    </View>
+  )
+
+  const footer = !done && cur && !inScript && (
     <View style={styles.footer}>
       {!isChoice && outs[0]?.label ? (
         <View style={styles.when}>
@@ -310,7 +439,7 @@ export default function Present() {
         </View>
       ) : null}
       <View style={styles.footerRow}>
-        <Button label="Back" icon="arrow-left" variant="soft" size="lg" disabled={path.length <= 1} onPress={back} />
+        <Button label="Back" icon="arrow-left" variant="soft" size="lg" disabled={path.length <= 1 && !(script && lineIdx > 0)} onPress={back} />
         {!isChoice && (
           outs.length === 1
             ? <Button label="Next" iconRight="arrow-right" size="lg" onPress={() => go(outs[0])} style={{ flex: 1 }} />
@@ -335,9 +464,12 @@ export default function Present() {
               {visitedSteps} step{visitedSteps === 1 ? '' : 's'}{answered ? ` · ${answered} answered` : ''}
             </Text>
           </View>
-          <Button label="Recall" icon={recall ? 'eye-off' : 'eye'} variant={recall ? 'ink' : 'soft'} size="sm" onPress={() => { setRecall((r) => !r); setRevealed(new Set()) }} />
+          {hasScripts ? (wide && seatPicker) : (
+            <Button label="Recall" icon={recall ? 'eye-off' : 'eye'} variant={recall ? 'ink' : 'soft'} size="sm" onPress={() => { setRecall((r) => !r); setRevealed(new Set()) }} />
+          )}
           <Button label="Board" icon="grid" variant="soft" size="sm" onPress={() => router.push(`/flow/${flow.id}/board`)} />
         </View>
+        {hasScripts && !wide && <View style={styles.subHeader}>{seatPicker}</View>}
 
         {steps.length === 0 ? (
           <View style={styles.centered}>
@@ -350,7 +482,11 @@ export default function Present() {
             {wide && <ScrollView style={styles.side} contentContainerStyle={{ padding: S.xl }}>{trail}</ScrollView>}
             <View style={{ flex: 1 }}>
               {!wide && path.length > 1 && crumbs}
-              <ScrollView contentContainerStyle={[styles.stage, done || isChoice ? styles.stageCentre : null]}>
+              <ScrollView
+                ref={stageRef}
+                contentContainerStyle={[styles.stage, done || isChoice ? styles.stageCentre : null]}
+                onContentSizeChange={() => { if (script) stageRef.current?.scrollToEnd({ animated: true }) }}
+              >
                 <Animated.View
                   style={{
                     width: '100%', maxWidth: 720,
@@ -358,9 +494,10 @@ export default function Present() {
                     transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
                   }}
                 >
-                  {done ? complete : isChoice ? choice : stepBody}
+                  {done ? complete : isChoice ? choice : script ? scriptBody : stepBody}
                 </Animated.View>
               </ScrollView>
+              {scriptFooter}
               {footer}
             </View>
           </View>
@@ -435,6 +572,17 @@ const styles = StyleSheet.create({
   completeBadge: { width: 88, height: 88, borderRadius: 44, backgroundColor: C.accentSoft, alignItems: 'center', justifyContent: 'center', marginBottom: S.lg },
   completeActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: S.sm, marginTop: S.xl },
 
+  log: { marginTop: S.xl, gap: S.sm },
+  summary: { marginTop: S.xl, backgroundColor: C.bg2, borderRadius: 16, padding: S.lg, gap: 6, borderWidth: StyleSheet.hairlineWidth, borderColor: C.border },
+  summaryHead: { color: C.text, fontSize: F.body, fontWeight: '700' },
+  summaryLine: { color: C.muted, fontSize: F.body, lineHeight: 21 },
+  turn: { color: C.muted, fontSize: F.small, fontWeight: '600', textAlign: 'center' },
+  seatRow: { flexDirection: 'row', alignItems: 'center', gap: S.sm },
+  subHeader: { paddingHorizontal: S.md, paddingVertical: S.sm, backgroundColor: C.bg2, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
+  seatSeg: { flexDirection: 'row', backgroundColor: '#EEF1F6', borderRadius: 10, padding: 3, gap: 2 },
+  seatItem: { paddingHorizontal: 10, height: 28, borderRadius: 8, justifyContent: 'center' },
+  seatOn: { backgroundColor: C.bg2, shadowColor: '#1B2130', shadowOpacity: 0.1, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } },
+  seatText: { color: C.muted, fontSize: F.small, fontWeight: '600' },
   footer: {
     gap: S.sm, paddingHorizontal: S.lg, paddingTop: S.md, paddingBottom: S.md,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.border, backgroundColor: C.bg2,

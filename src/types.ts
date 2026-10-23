@@ -25,6 +25,22 @@ export interface StepImage {
   height: number
 }
 
+// Who a script line belongs to. PF and PM are the two pilots; the rest are
+// voices from outside the flight deck.
+export type Seat = 'PF' | 'PM' | 'GND' | 'ATC' | 'CABIN' | 'BOTH'
+
+// One line of a two-crew procedure, in order: either said aloud (a callout)
+// or done (an action / check).
+export interface ScriptLine {
+  id: string
+  who: Seat
+  say: boolean      // true = spoken callout, false = action or check
+  text: string
+  key?: boolean     // ● a point of the basic procedure
+  forget?: boolean  // ★ easy to forget or get wrong
+  note?: string     // small explanation under the line
+}
+
 export interface Step {
   id: string
   title: string
@@ -47,6 +63,8 @@ export interface Step {
   // bullets are kept but hidden until converted back to normal size.
   size?: 'small'
   checked?: boolean // box-level done state for small boxes
+  // The PF / PM dialogue for this phase, in order.
+  script?: ScriptLine[]
   // Free position on the flow whiteboard (board coordinates). Auto-laid-out when absent.
   board?: { x: number; y: number }
 }
@@ -80,6 +98,8 @@ export interface Flow {
   steps: Step[]
   edges?: Edge[]
   notes?: BoardNote[]
+  // Practice record per script line: how often it was got right / missed.
+  drill?: Record<string, { got: number; miss: number }>
   createdAt: number
   updatedAt: number
 }

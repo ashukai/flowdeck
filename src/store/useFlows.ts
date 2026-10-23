@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { Flow, Step, Annotation, Edge, BoardNote } from '@/types'
+import { Flow, Step, Annotation, Edge, BoardNote, ScriptLine } from '@/types'
 import { uid } from '@/lib/id'
 
 // Local-first: everything persists to device storage. The shape is kept
@@ -31,6 +31,11 @@ interface FlowsState {
   // whiteboard-level
   setEdges: (flowId: string, edges: Edge[]) => void
   setNotes: (flowId: string, notes: BoardNote[]) => void
+
+  // script-level
+  setScript: (flowId: string, stepId: string, script: ScriptLine[]) => void
+  markLine: (flowId: string, lineId: string, got: boolean) => void
+  clearDrill: (flowId: string) => void
 }
 
 function touch(flow: Flow): Flow {
@@ -163,6 +168,26 @@ export const useFlows = create<FlowsState>()(
         set((s) => ({
           flows: s.flows.map((f) => (f.id === flowId ? touch({ ...f, notes }) : f)),
         })),
+
+      setScript: (flowId, stepId, script) =>
+        set((s) => ({
+          flows: s.flows.map((f) =>
+            f.id !== flowId ? f : touch({ ...f, steps: f.steps.map((st) => (st.id === stepId ? { ...st, script } : st)) })
+          ),
+        })),
+
+      markLine: (flowId, lineId, got) =>
+        set((s) => ({
+          flows: s.flows.map((f) => {
+            if (f.id !== flowId) return f
+            const prev = f.drill?.[lineId] ?? { got: 0, miss: 0 }
+            const next = got ? { ...prev, got: prev.got + 1 } : { ...prev, miss: prev.miss + 1 }
+            return { ...f, drill: { ...(f.drill ?? {}), [lineId]: next } }
+          }),
+        })),
+
+      clearDrill: (flowId) =>
+        set((s) => ({ flows: s.flows.map((f) => (f.id === flowId ? { ...f, drill: {} } : f)) })),
     }),
     {
       name: 'flowdeck.flows.v1',

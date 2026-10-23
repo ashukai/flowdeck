@@ -1,6 +1,7 @@
 import { useFlows } from '@/store/useFlows'
 import { Edge, Step } from '@/types'
 import { cardHeight, cardWidth, tidyLayout } from '@/lib/flowGeometry'
+import { parseScript } from '@/lib/script'
 
 // Seeds a small illustrative flow so a new user sees the shape of things:
 // steps, a yes/no condition, an abort branch that loops back, and end markers.
@@ -19,7 +20,21 @@ export function seedExampleFlow(): string {
     return sid
   }
 
-  const before = add('Before start', { bullets: ['APU BLEED — ON', 'Beacon — ON', 'Thrust levers — IDLE'] })
+  // A generic two-crew exchange, so the PF / PM script and practice can be tried out.
+  const before = add('Before start', {
+    script: parseScript([
+      'PF: "Before start checklist"',
+      'PM ●: Read the before start checklist down to the line',
+      'PM: "Before start checklist complete to the line"',
+      'PF: "Request pushback"',
+      'PM: Request pushback and start-up from ATC',
+      'ATC: "Pushback approved, face west"',
+      'PM: "Pushback approved, face west" // read back to ATC, then tell the PF',
+      'GND: "Ready for pushback, release brakes"',
+      'PF ★: Release the parking brake // check the brake message clears',
+      'PF: "Brakes released"',
+    ].join('\n')),
+  })
   const eng2 = add('Start engine 2', { bullets: ['ENG MODE selector — IGN/START', 'ENG 2 master — ON', 'Monitor N2, fuel flow, EGT'] })
   const check = add('Light-off and N2 normal?', { kind: 'decision' })
   const eng1 = add('Start engine 1', { bullets: ['ENG 1 master — ON', 'Parameters stabilise'] })
